@@ -1,29 +1,119 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Список задач</title>
+    <meta charset="UTF-8" />
+    <title>Задачи</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .task { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .completed { text-decoration: line-through; color: #888; }
-        h1 { color: #333; }
+        .filters { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .filters form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+        .filters select, .filters input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .task { border-left: 4px solid #3498db; padding: 15px; margin: 10px 0; background: #fff; }
+        .task.priority-high { border-left-color: #e74c3c; }
+        .task.priority-medium { border-left-color: #f39c12; }
+        .task.priority-low { border-left-color: #2ecc71; }
+        .task.done { opacity: 0.7; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; }
+        .badge-high { background: #ffebee; color: #c62828; }
+        .badge-medium { background: #fff8e1; color: #f57f17; }
+        .badge-low { background: #e8f5e9; color: #2e7d32; }
+        .stats { background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; }
     </style>
 </head>
-<body>
-    <h1>Мои задачи</h1>
-    
-    {% if tasks %}
-        {% for task in tasks %}
-            <div class="task {% if task.is_completed %}completed{% endif %}">
-                <h3>{{ task.title }}</h3>
-                <p>{{ task.description }}</p>
-                <small>Создано: {{ task.created_at|date:"d.m.Y H:i" }}</small>
+<body style="font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px;">
+
+    <h1>📋 Мои задачи</h1>
+
+    <div class="stats">
+        <strong>📊 Статистика:</strong>
+        Всего: {{ stats.total|default:0 }} |
+        Выполнено: {{ stats.completed|default:0 }} |
+        Высокий приоритет: {{ stats.high_priority|default:0 }}
+        <a href="{% url 'task_stats' %}" style="margin-left: 10px;">Подробная статистика →</a>
+    </div>
+
+    <div class="filters">
+        <form method="get" action="">
+            <input
+                type="text"
+                name="search"
+                placeholder="🔍 Поиск..."
+                value="{{ filters.search|default:'' }}"
+                style="min-width: 200px;"
+            />
+
+            <select name="priority">
+                <option value="">Все приоритеты</option>
+                <option value="high" {% if filters.priority == 'high' %}selected{% endif %}>🔴 Высокий</option>
+                <option value="medium" {% if filters.priority == 'medium' %}selected{% endif %}>🟡 Средний</option>
+                <option value="low" {% if filters.priority == 'low' %}selected{% endif %}>🟢 Низкий</option>
+            </select>
+
+            <select name="status">
+                <option value="">Все статусы</option>
+                {% for status_choice in task.Status.choices %}
+                    <option value="{{ status_choice.0 }}" {% if filters.status == status_choice.0 %}selected{% endif %}>
+                        {{ status_choice.1 }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <select name="category">
+                <option value="">Все категории</option>
+                {% for cat in categories %}
+                    <option value="{{ cat.id }}" {% if filters.category|stringformat:"s" == cat.id|stringformat:"s" %}selected{% endif %}>
+                        {{ cat.name }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <label style="display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %} />
+                Только просроченные
+            </label>
+
+            <button type="submit" style="padding: 8px 16px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                Фильтровать
+            </button>
+            <a href="?" style="padding: 8px 16px; color: #666; text-decoration: none;">✕ Сбросить</a>
+        </form>
+    </div>
+
+    {% for task in tasks %}
+        <div class="task priority-{{ task.priority }} {% if task.status == 'done' %}done{% endif %}">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div>
+                    <h3 style="margin: 0 0 5px 0;">{{ task.title }}</h3>
+                    <p style="margin: 0 0 10px 0; color: #666;">{{ task.description|truncatewords:30 }}</p>
+
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 14px;">
+                        <span class="badge badge-{{ task.priority }}">{{ task.get_priority_display }}</span>
+                        <span style="color: #666;">{{ task.get_status_display }}</span>
+                        {% if task.category %}
+                            <span style="background: {{ task.category.color }}20; color: {{ task.category.color }}; padding: 2px 8px; border-radius: 10px;">
+                                {{ task.category.name }}
+                            </span>
+                        {% endif %}
+                        {% for tag in task.tags.all %}
+                            <span style="background: #eee; padding: 2px 8px; border-radius: 10px;">#{{ tag.name }}</span>
+                        {% endfor %}
+                    </div>
+
+                    {% if task.due_date %}
+                        {# Проверяем просроченность: предполагаем что now передан в контекст как timezone-aware datetime #}
+                        <p style="margin: 10px 0 0 0; font-size: 13px; color: {% if task.due_date < now and task.status != 'done' %}#e74c3c{% else %}#666{% endif %};">
+                            ⏰ Дедлайн: {{ task.due_date|date:"d.m.Y H:i" }}
+                        </p>
+                    {% endif %}
+                </div>
+                <div style="text-align: right;">
+                    <small style="color: #999;">{{ task.created_at|date:"d.m.Y" }}</small>
+                </div>
             </div>
-        {% endfor %}
-    {% else %}
-        <p>Задач пока нет.</p>
-    {% endif %}
+        </div>
+    {% empty %}
+        <p style="text-align: center; color: #666;">Задач не найдено. Попробуйте изменить фильтры.</p>
+    {% endfor %}
+
 </body>
 </html>
